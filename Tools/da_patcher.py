@@ -32,6 +32,11 @@ sys.path.insert(0, parent_dir)
 
 from mtkclient.Library.utils import find_binary
 
+# ── Security error codes used in DA binaries ──────────────────────────
+ANTI_ROLLBACK_CODE = 0xC0020053
+AUTH_HASH_CHECK_CODE = 0xC0070004
+REGISTER_RW_CODE = 0xC004000D
+
 # DA header field structure (from da_parser.py)
 entry_region = [
     ('m_buf', 'I'),
@@ -107,7 +112,7 @@ def patch_version_string(data, new_version):
 def patch_antirollback(region_data, region_name):
     """Disable anti-rollback version check by patching all 0xC0020053 occurrences
     to zeros."""
-    pattern = int.to_bytes(0xC0020053, 4, 'little')
+    pattern = int.to_bytes(ANTI_ROLLBACK_CODE, 4, 'little')
     count = 0
     idx = 0
     while True:
@@ -158,7 +163,7 @@ def patch_hash_binding(da2_data):
 
 def patch_auth_hash_check(da2_data):
     """Patch auth hash check (0xC0070004) in DA2 (from xflash.py patch_da2)."""
-    pattern = int.to_bytes(0xC0070004, 4, 'little')
+    pattern = int.to_bytes(AUTH_HASH_CHECK_CODE, 4, 'little')
     idx = find_binary(da2_data, pattern)
     if idx is not None:
         da2_data[idx:idx + 4] = int.to_bytes(0, 4, 'little')
@@ -182,7 +187,7 @@ def patch_auth_hash_check(da2_data):
 
 def patch_auth_hash_check_da1(da1_data):
     """Patch auth hash check (0xC0070004) in DA1."""
-    pattern = int.to_bytes(0xC0070004, 4, 'little')
+    pattern = int.to_bytes(AUTH_HASH_CHECK_CODE, 4, 'little')
     idx = da1_data.find(pattern)
     if idx != -1:
         da1_data[idx:idx + 4] = int.to_bytes(0, 4, 'little')
@@ -240,7 +245,7 @@ def patch_write_forbidden(da2_data):
 
 def patch_register_rw(da2_data):
     """Patch register read/write not allowed (0xC004000D)."""
-    pattern = int.to_bytes(0xC004000D, 4, 'little')
+    pattern = int.to_bytes(REGISTER_RW_CODE, 4, 'little')
     idx = find_binary(da2_data, pattern)
     if idx is not None:
         da2_data[idx:idx + 4] = int.to_bytes(0, 4, 'little')
@@ -459,7 +464,7 @@ def main():
             continue
         da1 = patched[tgt_regions[1]['m_buf']:tgt_regions[1]['m_buf'] + tgt_regions[1]['m_len']]
         da2 = patched[tgt_regions[2]['m_buf']:tgt_regions[2]['m_buf'] + tgt_regions[2]['m_len']]
-        arb_pattern = int.to_bytes(0xC0020053, 4, 'little')
+        arb_pattern = int.to_bytes(ANTI_ROLLBACK_CODE, 4, 'little')
         da1_arb = find_binary(da1, arb_pattern)
         da2_arb = find_binary(da2, arb_pattern)
         if da1_arb is None and da2_arb is None:

@@ -14,6 +14,7 @@ Example:
 """
 import os
 import sys
+import re
 import hashlib
 from struct import unpack, pack
 import inspect
@@ -301,7 +302,6 @@ def analyze_da(filepath):
         rest = parts[1]  # e.g. "3.3001.2025/11/07.14:24_654171"
         da_ver = rest.split(".")[0] + "." + rest.split(".")[1] if "." in rest else rest
         # Extract date
-        import re
         date_m = re.search(r'(\d{4}/\d{2}/\d{2}\.\d{2}:\d{2})', rest)
         if date_m:
             da_date = date_m.group(1)
