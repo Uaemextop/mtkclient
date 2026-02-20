@@ -137,6 +137,140 @@ def patch_da_version_check(da1_data):
         return False
 
 
+def patch_hash_binding(da2_data):
+    """Patch hash binding check in DA2 (from xflash.py patch_da2)."""
+    # Thumb variant
+    pattern = b"\x01\x23\x03\x60\x00\x20\x70\x47\x70\xB5"
+    idx = find_binary(da2_data, pattern)
+    if idx is not None:
+        da2_data[idx:idx + 1] = b"\x00"
+        print(f"  DA2 hash binding (Thumb) patched at 0x{idx:X}")
+        return True
+    # ARM variant
+    pattern2 = b"\x01\x10\xA0\xE3\x00\x10\x80\xE5\x00\x00\xA0\xE3\x1E\xFF\x2F\xE1"
+    idx2 = find_binary(da2_data, pattern2)
+    if idx2 is not None:
+        da2_data[idx2:idx2 + 1] = b"\x00"
+        print(f"  DA2 hash binding (ARM) patched at 0x{idx2:X}")
+        return True
+    return False
+
+
+def patch_auth_hash_check(da2_data):
+    """Patch auth hash check (0xC0070004) in DA2 (from xflash.py patch_da2)."""
+    pattern = int.to_bytes(0xC0070004, 4, 'little')
+    idx = find_binary(da2_data, pattern)
+    if idx is not None:
+        da2_data[idx:idx + 4] = int.to_bytes(0, 4, 'little')
+        print(f"  DA2 auth hash check patched at 0x{idx:X}")
+        return True
+    # Alternative pattern
+    pattern2 = b"\x4F\xF0\x04\x09\xCC\xF2\x07\x09"
+    idx2 = find_binary(da2_data, pattern2)
+    if idx2 is not None:
+        da2_data[idx2:idx2 + 8] = b"\x4F\xF0\x00\x09\x4F\xF0\x00\x09"
+        print(f"  DA2 auth hash check (alt1) patched at 0x{idx2:X}")
+        return True
+    pattern3 = b"\x4F\xF0\x04\x09\x32\x46\x01\x98\x03\x99\xCC\xF2\x07\x09"
+    idx3 = find_binary(da2_data, pattern3)
+    if idx3 is not None:
+        da2_data[idx3:idx3 + 14] = b"\x4F\xF0\x00\x09\x32\x46\x01\x98\x03\x99\x4F\xF0\x00\x09"
+        print(f"  DA2 auth hash check (alt2) patched at 0x{idx3:X}")
+        return True
+    return False
+
+
+def patch_auth_hash_check_da1(da1_data):
+    """Patch auth hash check (0xC0070004) in DA1."""
+    pattern = int.to_bytes(0xC0070004, 4, 'little')
+    idx = da1_data.find(pattern)
+    if idx != -1:
+        da1_data[idx:idx + 4] = int.to_bytes(0, 4, 'little')
+        print(f"  DA1 auth hash check patched at 0x{idx:X}")
+        return True
+    return False
+
+
+def patch_security_check(da2_data):
+    """Patch security check in DA2 (from xflash.py patch_da2)."""
+    pattern = b"\x01\x23\x03\x60\x00\x20\x70\x47\x70\xB5"
+    idx = find_binary(da2_data, pattern)
+    if idx is not None:
+        da2_data[idx:idx + 2] = b"\x00\x23"
+        print(f"  DA2 security check patched at 0x{idx:X}")
+        return True
+    return False
+
+
+def patch_sbc_check(da1_data, region_name):
+    """Patch Secure Boot Check (SBC) to be disabled."""
+    pattern = b"\x02\x4B\x18\x68\xC0\xF3\x40\x00\x70\x47"
+    idx = find_binary(da1_data, pattern)
+    if idx is not None:
+        da1_data[idx + 4:idx + 8] = b"\x4F\xF0\x00\x00"
+        print(f"  {region_name} SBC check patched at 0x{idx:X}")
+        return True
+    return False
+
+
+def patch_write_forbidden(da2_data):
+    """Patch write forbidden checks in DA2 (from xflash.py patch_da2)."""
+    patched = False
+    idx = 0
+    while True:
+        idx = da2_data.find(b"\x37\xB5\x00\x23\x04\x46\x02\xA8", idx)
+        if idx == -1:
+            break
+        da2_data[idx:idx + 8] = b"\x37\xB5\x00\x20\x03\xB0\x30\xBD"
+        print(f"  DA2 write forbidden v1 patched at 0x{idx:X}")
+        patched = True
+        idx += 8
+    if not patched:
+        idx = da2_data.find(b"\x0C\x23\xCC\xF2\x02\x03")
+        if idx != -1:
+            da2_data[idx:idx + 6] = b"\x00\x23\x00\x23\x00\x23"
+            print(f"  DA2 write forbidden v2 patched at 0x{idx:X}")
+            idx2 = da2_data.find(b"\x2A\x23\xCC\xF2\x02\x03")
+            if idx2 != -1:
+                da2_data[idx2:idx2 + 6] = b"\x00\x23\x00\x23\x00\x23"
+                print(f"  DA2 write forbidden v2b patched at 0x{idx2:X}")
+            patched = True
+    return patched
+
+
+def patch_register_rw(da2_data):
+    """Patch register read/write not allowed (0xC004000D)."""
+    pattern = int.to_bytes(0xC004000D, 4, 'little')
+    idx = find_binary(da2_data, pattern)
+    if idx is not None:
+        da2_data[idx:idx + 4] = int.to_bytes(0, 4, 'little')
+        print(f"  DA2 register R/W restriction patched at 0x{idx:X}")
+        return True
+    return False
+
+
+def patch_moto_sla(da2_data):
+    """Patch Motorola SLA check in DA2."""
+    pattern = b"\x01\x00\x01\xC0\x01\x20\x70\x47"
+    idx = find_binary(da2_data, pattern)
+    if idx is not None:
+        da2_data[idx + 4:idx + 6] = b"\x00\x20"
+        print(f"  DA2 Motorola SLA patched at 0x{idx:X}")
+        return True
+    return False
+
+
+def patch_carbonara_v5(da1_data):
+    """Patch Carbonara v5 anti-exploit in DA1."""
+    pattern = b"\x06\x9B\x4F\xF0\x80\x40\x02\xA9"
+    idx = find_binary(da1_data, pattern)
+    if idx is not None:
+        da1_data[idx + 3:idx + 5] = b"\x00\x00"
+        print(f"  DA1 Carbonara v5 patched at 0x{idx:X}")
+        return True
+    return False
+
+
 def compute_hash_pos(da1, da2):
     """Find the position and type of the DA2 hash stored in DA1
     (from patch_legacy.py)."""
@@ -232,20 +366,28 @@ def patch_da(reference_data, target_data, target_name):
     # Step 2: Patch version string in file header
     target = patch_version_string(target, ref_version)
 
-    # Step 3: Patch anti-rollback in DA1
+    # Step 3: Patch DA1 security
     patch_antirollback(da1, "DA1")
-
-    # Step 4: Patch DA version check in DA1
     patch_da_version_check(da1)
+    patch_auth_hash_check_da1(da1)
+    patch_sbc_check(da1, "DA1")
+    patch_carbonara_v5(da1)
 
-    # Step 5: Patch anti-rollback in DA2
+    # Step 4: Patch DA2 security
     patch_antirollback(da2, "DA2")
+    patch_hash_binding(da2)
+    patch_auth_hash_check(da2)
+    patch_security_check(da2)
+    patch_sbc_check(da2, "DA2")
+    patch_write_forbidden(da2)
+    patch_register_rw(da2)
+    patch_moto_sla(da2)
 
-    # Step 6: Write patched DA1 and DA2 back to file
+    # Step 5: Write patched DA1 and DA2 back to file
     target[da1_buf:da1_buf + da1_len] = da1
     target[da2_buf:da2_buf + da2_len] = da2
 
-    # Step 7: Update DA2 hash in DA1 if it was found
+    # Step 6: Update DA2 hash in DA1 if it was found
     if hash_pos is not None:
         da2_patched_for_hash = bytes(da2[:da2_len - da2_sig_len])
         da1 = fix_hash(da1, da2_patched_for_hash, hash_pos, hash_mode)

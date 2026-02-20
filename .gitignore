@@ -3,6 +3,7 @@ __pycache__
 *.pyc
 .idea
 DA_*.bin
+!mtkclient/Loader/Motorola_MT6768/DA_*.bin
 /loaders/
 
 # Setuptools distribution folder.
