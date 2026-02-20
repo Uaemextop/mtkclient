@@ -204,6 +204,10 @@ def patch_da(reference_data, target_data, target_name):
     tgt_hdr = tgt_entries[0][0]
     tgt_regions = tgt_entries[0][1]
 
+    if len(tgt_regions) < 3:
+        print(f"  Error: Expected at least 3 regions, found {len(tgt_regions)}")
+        return None
+
     # Region indices: 0=EMI, 1=DA1, 2=DA2
     da1_buf = tgt_regions[1]['m_buf']
     da1_len = tgt_regions[1]['m_len']
@@ -308,6 +312,9 @@ def main():
 
         # Verify anti-rollback is disabled
         tgt_regions = patched_entries[0][1]
+        if len(tgt_regions) < 3:
+            print("  Warning: Cannot verify - not enough regions")
+            continue
         da1 = patched[tgt_regions[1]['m_buf']:tgt_regions[1]['m_buf'] + tgt_regions[1]['m_len']]
         da2 = patched[tgt_regions[2]['m_buf']:tgt_regions[2]['m_buf'] + tgt_regions[2]['m_len']]
         arb_pattern = int.to_bytes(0xC0020053, 4, 'little')
