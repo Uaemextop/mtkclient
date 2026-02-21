@@ -1043,17 +1043,18 @@ class DAXFlash(metaclass=LogBase):
                             ap_dma_mem = self.config.chipconfig.ap_dma_mem
                             if cqdma_base is not None and ap_dma_mem is not None:
                                 self.info("Trying CQ_DMA to bypass crypto protection...")
-                                if self.mtk.preloader.write32(ap_dma_mem, [0x0000F04F]):
-                                    self.mtk.preloader.write32(cqdma_base + 0x1C, [ap_dma_mem])
-                                    self.mtk.preloader.write32(cqdma_base + 0x20, [patch_addr])
-                                    self.mtk.preloader.write32(cqdma_base + 0x24, [4])
-                                    self.mtk.preloader.write32(cqdma_base + 0x08, [1])
+                                if (self.mtk.preloader.write32(ap_dma_mem, [0x0000F04F]) and
+                                        self.mtk.preloader.write32(cqdma_base + 0x1C, [ap_dma_mem]) and
+                                        self.mtk.preloader.write32(cqdma_base + 0x20, [patch_addr]) and
+                                        self.mtk.preloader.write32(cqdma_base + 0x24, [4]) and
+                                        self.mtk.preloader.write32(cqdma_base + 0x08, [1])):
+                                    # 50ms is generous for a 4-byte DMA transfer
                                     time.sleep(0.05)
                                     self.mtk.preloader.write32(ap_dma_mem, [0])
                                     self.info("Patched anti-carbonara in DA1 memory via CQ_DMA")
                                     self.config.da1_anti_carb_patched = True
                                 else:
-                                    self.warning("Failed to write to DMA scratch buffer")
+                                    self.warning("CQ_DMA anti-carbonara patch failed")
                 if self.mtk.preloader.jump_da(da1address):
                     sync = self.usbread(1)
                     if sync != b"\xC0":
