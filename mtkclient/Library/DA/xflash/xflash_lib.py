@@ -291,7 +291,7 @@ class DAXFlash(metaclass=LogBase):
                     if self.usbwrite(param):
                         if self.send_data(da):
                             # if addr == 0x68000000:
-                            if addr == self.extensions_address:
+                            if addr == self.extensions_address or addr == 0x68000000:
                                 if display:
                                     self.info("Extensions were accepted. Jumping to extensions...")
                             else:
@@ -1038,23 +1038,7 @@ class DAXFlash(metaclass=LogBase):
                             self.info("Patched anti-carbonara in DA1 memory")
                             self.config.da1_anti_carb_patched = True
                         else:
-                            self.warning("Failed to patch anti-carbonara in DA1 memory via write32")
-                            cqdma_base = self.config.chipconfig.cqdma_base
-                            ap_dma_mem = self.config.chipconfig.ap_dma_mem
-                            if cqdma_base is not None and ap_dma_mem is not None:
-                                self.info("Trying CQ_DMA to bypass crypto protection...")
-                                if (self.mtk.preloader.write32(ap_dma_mem, [0x0000F04F]) and
-                                        self.mtk.preloader.write32(cqdma_base + 0x1C, [ap_dma_mem]) and
-                                        self.mtk.preloader.write32(cqdma_base + 0x20, [patch_addr]) and
-                                        self.mtk.preloader.write32(cqdma_base + 0x24, [4]) and
-                                        self.mtk.preloader.write32(cqdma_base + 0x08, [1])):
-                                    # 50ms is generous for a 4-byte DMA transfer
-                                    time.sleep(0.05)
-                                    self.mtk.preloader.write32(ap_dma_mem, [0])
-                                    self.info("Patched anti-carbonara in DA1 memory via CQ_DMA")
-                                    self.config.da1_anti_carb_patched = True
-                                else:
-                                    self.warning("CQ_DMA anti-carbonara patch failed")
+                            self.warning("Failed to patch anti-carbonara in DA1 memory")
                 if self.mtk.preloader.jump_da(da1address):
                     sync = self.usbread(1)
                     if sync != b"\xC0":
@@ -1237,18 +1221,20 @@ class DAXFlash(metaclass=LogBase):
                             self.info("Attempting to load extensions on unpatched DA...")
                     if daextdata is not None:
                         self.daext = False
-                        if self.boot_to(addr=self.extensions_address, da=daextdata):
-                            ret = self.send_devctrl(XCmd.CUSTOM_ACK)
-                            status = self.status()
-                            if status == 0x0 and unpack("<I", ret)[0] == 0xA1A2A3A4:
-                                self.info(f"DA Extensions successfully added at {hex(self.extensions_address)}")
-                                self.daext = True
-                                self.xft.custom_set_storage(ufs=self.daconfig.storage.flashtype == "ufs")
-                                if not self.mtk.daloader.patch:
-                                    self.info("Attempting post-upload DA2 patch via extensions...")
-                                    if self.patch_da2_via_ext():
-                                        self.mtk.daloader.patch = True
-                                        self.info("DA2 successfully patched in memory")
+                        for ext_addr in [self.extensions_address, 0x68000000]:
+                            if self.boot_to(addr=ext_addr, da=daextdata):
+                                ret = self.send_devctrl(XCmd.CUSTOM_ACK)
+                                status = self.status()
+                                if status == 0x0 and unpack("<I", ret)[0] == 0xA1A2A3A4:
+                                    self.info(f"DA Extensions successfully added at {hex(ext_addr)}")
+                                    self.daext = True
+                                    self.xft.custom_set_storage(ufs=self.daconfig.storage.flashtype == "ufs")
+                                    if not self.mtk.daloader.patch:
+                                        self.info("Attempting post-upload DA2 patch via extensions...")
+                                        if self.patch_da2_via_ext():
+                                            self.mtk.daloader.patch = True
+                                            self.info("DA2 successfully patched in memory")
+                                    break
                         if not self.daext:
                             self.warning("DA Extensions failed to enable")
 
