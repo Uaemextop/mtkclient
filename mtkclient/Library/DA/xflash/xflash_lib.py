@@ -1030,6 +1030,13 @@ class DAXFlash(metaclass=LogBase):
                 self.daconfig.da2 = da2[:-da2sig_len]
             if self.mtk.preloader.send_da(da1address, da1size, da1sig_len, da1):
                 self.info("Successfully uploaded stage 1, jumping ..")
+                if not self.config.target_config.get("memwrite", True):
+                    anti_carb = da1.find(b"\x06\x9B\x4F\xF0\x80\x40\x02\xA9")
+                    if anti_carb != -1:
+                        patch_addr = da1address + anti_carb + 2
+                        if self.mtk.preloader.write32(patch_addr, [0x0000F04F]):
+                            self.info("Patched anti-carbonara in DA1 memory")
+                            self.config.da1_anti_carb_patched = True
                 if self.mtk.preloader.jump_da(da1address):
                     sync = self.usbread(1)
                     if sync != b"\xC0":
