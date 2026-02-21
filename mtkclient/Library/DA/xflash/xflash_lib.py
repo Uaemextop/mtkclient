@@ -974,10 +974,12 @@ class DAXFlash(metaclass=LogBase):
                     da1, da2, da1sig_len, da2sig_len, self.daconfig.da_loader.v6)
                 if hashaddr is not None:
                     self.daconfig.da2 = da2[:hashlen]
-                elif da2sig_len:
-                    self.daconfig.da2 = da2[:-da2sig_len]
                 else:
-                    self.daconfig.da2 = da2
+                    self.debug("DA2 hash position not found, using default sig strip")
+                    if da2sig_len:
+                        self.daconfig.da2 = da2[:-da2sig_len]
+                    else:
+                        self.daconfig.da2 = da2
             if self.mtk.preloader.send_da(da1address, da1size, da1sig_len, da1):
                 self.info("Successfully uploaded stage 1, jumping ..")
                 if self.mtk.preloader.jump_da(da1address):

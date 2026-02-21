@@ -294,11 +294,11 @@ def compute_hash_pos(da1, da2):
         return idx, hashmode
     # V5 fallback: find hash location via "MMU MAP: VA" string
     idx_mmu = da1.find(b"MMU MAP: VA")
-    if idx_mmu != -1:
+    if idx_mmu != -1 and idx_mmu >= 0x30:
         stored_area = da1[idx_mmu - 0x30:idx_mmu]
         if stored_area[-4:] == b"\x00\x00\x00\x00":
             return idx_mmu - 0x30, 2  # SHA256
-        else:
+        elif idx_mmu >= 0x14:
             return idx_mmu - 0x14, 1  # SHA1
     return None, None
 
