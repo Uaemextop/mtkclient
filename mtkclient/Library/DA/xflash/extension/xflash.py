@@ -451,7 +451,12 @@ class XFlashExt(metaclass=LogBase):
             res = self.custom_readregister(addr, dwords)
         else:
             res = self.custom_read(addr, dwords * 4)
+            if res == b"":
+                return b""
             res = [unpack("<I", res[i:i + 4])[0] for i in range(0, len(res), 4)]
+        if res == b"":
+            self.debug(f"RX: {hex(addr)} -> failed")
+            return b""
         if isinstance(res, list):
             self.debug(f"RX: {hex(addr)} -> " + bytearray(b"".join(pack("<I", val) for val in res)).hex())
         else:
@@ -808,6 +813,9 @@ class XFlashExt(metaclass=LogBase):
             return False, "Couldn't detect existing seccfg partition. Aborting unlock."
         if seccfg_data[:4] != pack("<I", 0x4D4D4D4D):
             return False, "Unknown seccfg partition header. Aborting unlock."
+        if not self.xflash.daext:
+            return False, ("DA extensions not loaded. The FORBID DA blocks extension commands "
+                           "required for seccfg unlock. A non-FORBID DA is needed.")
         hwc = self.cryptosetup()
         if seccfg_data[:0xC] == b"AND_SECCFG_v":
             self.info("Detected V3 Lockstate")
