@@ -78,6 +78,8 @@ class XFlashExt(metaclass=LogBase):
             daextdata = bytearray(open(daextensions, "rb").read())
 
             register_devctrl = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x20")
+            if register_devctrl is None:
+                register_devctrl = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x46")
 
             # EMMC
             mmc_get_card = find_binary(self.da2, b"\x4B\x4F\xF4\x3C\x72")
@@ -327,7 +329,19 @@ class XFlashExt(metaclass=LogBase):
                     """
                     patched = True
         if not patched:
+            # Fallback: patch the error code value directly
+            write_not_allowed = find_binary(da2patched, int.to_bytes(0xC002000C, 4, 'little'))
+            if write_not_allowed:
+                da2patched[write_not_allowed:write_not_allowed + 4] = int.to_bytes(0, 4, 'little')
+                patched = True
+                self.info("Write not allowed error code patched")
+        if not patched:
             self.warning("Write not allowed not patched.")
+        # Patch format not allowed
+        format_not_allowed = find_binary(da2patched, int.to_bytes(0xC002000D, 4, 'little'))
+        if format_not_allowed:
+            da2patched[format_not_allowed:format_not_allowed + 4] = int.to_bytes(0, 4, 'little')
+            self.info("Format not allowed error code patched")
         return da2patched
 
     def cmd(self, cmd):
@@ -437,7 +451,12 @@ class XFlashExt(metaclass=LogBase):
             res = self.custom_readregister(addr, dwords)
         else:
             res = self.custom_read(addr, dwords * 4)
+            if res == b"":
+                return b""
             res = [unpack("<I", res[i:i + 4])[0] for i in range(0, len(res), 4)]
+        if res == b"":
+            self.debug(f"RX: {hex(addr)} -> failed")
+            return b""
         if isinstance(res, list):
             self.debug(f"RX: {hex(addr)} -> " + bytearray(b"".join(pack("<I", val) for val in res)).hex())
         else:
@@ -794,6 +813,9 @@ class XFlashExt(metaclass=LogBase):
             return False, "Couldn't detect existing seccfg partition. Aborting unlock."
         if seccfg_data[:4] != pack("<I", 0x4D4D4D4D):
             return False, "Unknown seccfg partition header. Aborting unlock."
+        if not self.xflash.daext:
+            return False, ("DA extensions not loaded. The FORBID DA blocks extension commands "
+                           "required for seccfg unlock. A non-FORBID DA is needed.")
         hwc = self.cryptosetup()
         if seccfg_data[:0xC] == b"AND_SECCFG_v":
             self.info("Detected V3 Lockstate")
