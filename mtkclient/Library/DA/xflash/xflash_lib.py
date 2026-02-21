@@ -284,7 +284,8 @@ class DAXFlash(metaclass=LogBase):
 
     def boot_to(self, addr, da, display=True, timeout=0.5):  # =0x40000000
         if self.xsend(self.cmd.BOOT_TO):
-            if self.status() == 0:
+            boot_status = self.status()
+            if boot_status == 0:
                 param = pack("<QQ", addr, len(da))
                 pkt1 = pack("<III", self.cmd.MAGIC, self.data_type.DT_PROTOCOL_FLOW, len(param))
                 if self.usbwrite(pkt1):
@@ -321,8 +322,50 @@ class DAXFlash(metaclass=LogBase):
                 else:
                     self.error(f"Error on boot usbwrite, addr: {hex(addr)}")
             else:
-                self.error(f"Error on boot to, addr: {hex(addr)}")
+                self.error(f"Error on boot to: {self.eh.status(boot_status)}, addr: {hex(addr)}")
         return False
+
+    def write_register(self, addr, value):
+        """Write a 32-bit value to a register/memory address via DEVICE_CTRL SET_REGISTER_VALUE.
+        This goes through the DA2 DEVICE_CTRL command path which may be allowed
+        even when BOOT_TO and WRITE_DATA are blocked (e.g., FORBID DAs)."""
+        param = pack("<II", addr, value)
+        return self.send_devctrl(self.cmd.SET_REGISTER_VALUE, param) is True
+
+    def patch_da2_via_register(self):
+        """Patch DA2 write restrictions via SET_REGISTER_VALUE when extensions can't load.
+
+        On FORBID DAs where BOOT_TO is disabled (0xC0010003), extensions cannot be loaded.
+        This method uses SET_REGISTER_VALUE through DEVICE_CTRL to write patches
+        directly to DA2 memory addresses."""
+        da2 = self.daconfig.da2
+        da2_addr = self.daconfig.da_loader.region[2].m_start_addr
+        patched = False
+        # Patch write not allowed function (return 0 instead of error)
+        write_check = da2.find(b"\x37\xB5\x00\x23\x04\x46\x02\xA8")
+        if write_check != -1:
+            addr = da2_addr + write_check
+            # Patch to: 37 B5 00 20 03 B0 30 BD (PUSH {R4-R5,LR}; MOVS R0,#0; ADD SP,#0xC; POP {R4,R5,PC})
+            if not self.write_register(addr, 0x2000B537):
+                self.warning("SET_REGISTER_VALUE not supported by this DA")
+                return False
+            if self.write_register(addr + 4, 0xBD30B003):
+                self.info(f"Patched write restriction at {hex(addr)} via register write")
+                patched = True
+        # Patch all occurrences of known error codes
+        for error_code in [0xC002000C, 0xC002000D, 0xC004000D, 0xC0020053, 0xC0070004]:
+            error_bytes = int.to_bytes(error_code, 4, 'little')
+            idx = 0
+            while True:
+                idx = da2.find(error_bytes, idx)
+                if idx == -1:
+                    break
+                addr = da2_addr + idx
+                if self.write_register(addr, 0x00000000):
+                    self.info(f"Patched error code {hex(error_code)} at {hex(addr)} via register write")
+                    patched = True
+                idx += 4
+        return patched
 
     def get_connection_agent(self):
         # brom
@@ -1237,6 +1280,11 @@ class DAXFlash(metaclass=LogBase):
                                     break
                         if not self.daext:
                             self.warning("DA Extensions failed to enable")
+                            if not self.mtk.daloader.patch:
+                                self.info("Attempting DA2 patch via register writes...")
+                                if self.patch_da2_via_register():
+                                    self.mtk.daloader.patch = True
+                                    self.info("DA2 patched via register writes")
 
                         if self.generatekeys:
                             self.xft.generate_keys()
