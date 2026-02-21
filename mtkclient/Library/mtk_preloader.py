@@ -724,7 +724,7 @@ class Preloader(metaclass=LogBase):
                     self.error("Jump_DA status timeout after retries")
                     self.config.set_gui_status(self.config.tr("DA Error"))
                     return False
-                # Do NOT read status after sleep !
+                # Allow DA to initialize after jump
                 time.sleep(0.1)
                 if status == 0:
                     self.info(f"Jumping to {hex(addr)}: ok.")
