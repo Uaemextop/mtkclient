@@ -78,6 +78,8 @@ class XFlashExt(metaclass=LogBase):
             daextdata = bytearray(open(daextensions, "rb").read())
 
             register_devctrl = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x20")
+            if register_devctrl is None:
+                register_devctrl = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x46")
 
             # EMMC
             mmc_get_card = find_binary(self.da2, b"\x4B\x4F\xF4\x3C\x72")

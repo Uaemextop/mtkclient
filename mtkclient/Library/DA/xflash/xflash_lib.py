@@ -924,26 +924,63 @@ class DAXFlash(metaclass=LogBase):
         return False
 
     def patch_da2_via_ext(self):
-        """Patch DA2 write restrictions in memory via extensions after SLA auth"""
+        """Patch DA2 write restrictions in memory via extensions after SLA auth.
+
+        When pre-upload patching is not possible (e.g., anti-carbonara blocks
+        hash overwrite), this method patches DA2 code in running memory using
+        the extensions custom_write capability.
+        """
         da2 = self.daconfig.da2
         da2_addr = self.daconfig.da_loader.region[2].m_start_addr
         patched = False
-        # Patch write not allowed function
+        # Patch write not allowed function (return 0 instead of error)
         write_check = da2.find(b"\x37\xB5\x00\x23\x04\x46\x02\xA8")
         if write_check != -1:
             addr = da2_addr + write_check
             if self.xft.custom_write(addr, b"\x37\xB5\x00\x20\x03\xB0\x30\xBD"):
                 self.info(f"Patched write restriction at {hex(addr)}")
                 patched = True
-        # Patch error code 0xC002000C
-        for error_code in [0xC002000C, 0xC002000D, 0xC004000D]:
+        # Patch hash binding (disable security check)
+        hash_bind = da2.find(b"\x01\x23\x03\x60\x00\x20\x70\x47\x70\xB5")
+        if hash_bind != -1:
+            addr = da2_addr + hash_bind
+            if self.xft.custom_write(addr, b"\x00\x23"):
+                self.info(f"Patched hash binding at {hex(addr)}")
+                patched = True
+        # Patch SBC check to always return disabled
+        sbc_check = da2.find(b"\x02\x4B\x18\x68\xC0\xF3\x40\x00\x70\x47")
+        if sbc_check != -1:
+            addr = da2_addr + sbc_check + 4
+            if self.xft.custom_write(addr, b"\x4F\xF0\x00\x00"):
+                self.info(f"Patched SBC check at {hex(addr)}")
+                patched = True
+        # Patch Moto SLA to return disabled
+        moto_sla = da2.find(b"\x01\x00\x01\xC0\x01\x20\x70\x47")
+        if moto_sla != -1:
+            addr = da2_addr + moto_sla + 4
+            if self.xft.custom_write(addr, b"\x00\x20"):
+                self.info(f"Patched Moto SLA at {hex(addr)}")
+                patched = True
+        # Patch get_vfy_policy to return 0
+        vfy_policy = da2.find(bytes.fromhex("FFC0F3400008BD"))
+        if vfy_policy != -1:
+            addr = da2_addr + vfy_policy + 1
+            if self.xft.custom_write(addr, b"\x4F\xF0\x00\x00"):
+                self.info(f"Patched get_vfy_policy at {hex(addr)}")
+                patched = True
+        # Patch all occurrences of known error codes
+        for error_code in [0xC002000C, 0xC002000D, 0xC004000D, 0xC0020053, 0xC0070004]:
             error_bytes = int.to_bytes(error_code, 4, 'little')
-            idx = da2.find(error_bytes)
-            if idx != -1:
+            idx = 0
+            while True:
+                idx = da2.find(error_bytes, idx)
+                if idx == -1:
+                    break
                 addr = da2_addr + idx
                 if self.xft.custom_write(addr, b"\x00\x00\x00\x00"):
                     self.info(f"Patched error code {hex(error_code)} at {hex(addr)}")
                     patched = True
+                idx += 4
         return patched
 
     def patch_da(self, da1, da2):
@@ -1167,6 +1204,9 @@ class DAXFlash(metaclass=LogBase):
                     if self.mtk.daloader.patch:
                         daextdata = self.xft.patch()
                     else:
+                        # When pre-upload patching failed (e.g., anti-carbonara),
+                        # try loading extensions anyway to enable post-upload
+                        # memory patching of DA2 via custom_write
                         daextdata = self.xft.patch()
                         if daextdata is not None:
                             self.info("Attempting to load extensions on unpatched DA...")

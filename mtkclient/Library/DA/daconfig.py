@@ -108,6 +108,7 @@ class DAconfig(metaclass=LogBase):
                     if "MTK_AllInOne_DA" in file or "MTK_DA" in file:
                         loaders.append(os.path.join(root, file))
                     elif file.startswith("DA_") and file.endswith(".bin"):
+                        # Device-specific DA files (e.g., DA_A15_lamu_FORBID_SIGNED.bin)
                         custom_loaders.append(os.path.join(root, file))
             loaders = sorted(loaders)[::-1]
             for loader in loaders:
