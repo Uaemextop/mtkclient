@@ -327,7 +327,19 @@ class XFlashExt(metaclass=LogBase):
                     """
                     patched = True
         if not patched:
+            # Fallback: patch the error code value directly
+            write_not_allowed = find_binary(da2patched, int.to_bytes(0xC002000C, 4, 'little'))
+            if write_not_allowed:
+                da2patched[write_not_allowed:write_not_allowed + 4] = int.to_bytes(0, 4, 'little')
+                patched = True
+                self.info("Write not allowed error code patched")
+        if not patched:
             self.warning("Write not allowed not patched.")
+        # Patch format not allowed
+        format_not_allowed = find_binary(da2patched, int.to_bytes(0xC002000D, 4, 'little'))
+        if format_not_allowed:
+            da2patched[format_not_allowed:format_not_allowed + 4] = int.to_bytes(0, 4, 'little')
+            self.info("Format not allowed error code patched")
         return da2patched
 
     def cmd(self, cmd):
