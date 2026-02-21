@@ -29,8 +29,8 @@ class DAXFlash(metaclass=LogBase):
     """ Handles XFlash protocol """
 
     def __init__(self, mtk, daconfig, loglevel=logging.INFO):
-        # self.extensions_address = 0x68000000
         self.extensions_address = 0x4FFF0000
+        self.alt_extensions_address = 0x68000000
         self.daversion = None
         (self.__logger, self.info, self.debug, self.warning,
          self.error) = logsetup(self, self.__logger, loglevel, mtk.config.gui)
@@ -291,7 +291,7 @@ class DAXFlash(metaclass=LogBase):
                     if self.usbwrite(param):
                         if self.send_data(da):
                             # if addr == 0x68000000:
-                            if addr == self.extensions_address or addr == 0x68000000:
+                            if addr == self.extensions_address or addr == self.alt_extensions_address:
                                 if display:
                                     self.info("Extensions were accepted. Jumping to extensions...")
                             else:
@@ -1221,7 +1221,7 @@ class DAXFlash(metaclass=LogBase):
                             self.info("Attempting to load extensions on unpatched DA...")
                     if daextdata is not None:
                         self.daext = False
-                        for ext_addr in [self.extensions_address, 0x68000000]:
+                        for ext_addr in [self.extensions_address, self.alt_extensions_address]:
                             if self.boot_to(addr=ext_addr, da=daextdata):
                                 ret = self.send_devctrl(XCmd.CUSTOM_ACK)
                                 status = self.status()
