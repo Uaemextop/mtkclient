@@ -278,7 +278,7 @@ def patch_carbonara_v5(da1_data):
 
 def compute_hash_pos(da1, da2):
     """Find the position and type of the DA2 hash stored in DA1
-    (from patch_legacy.py)."""
+    (from patch_legacy.py). Also uses V5 fallback via 'MMU MAP: VA' string."""
     hashdigestmd5 = hashlib.md5(da2).digest()
     hashdigest = hashlib.sha1(da2).digest()
     hashdigest256 = hashlib.sha256(da2).digest()
@@ -292,6 +292,14 @@ def compute_hash_pos(da1, da2):
         hashmode = 2
     if idx != -1:
         return idx, hashmode
+    # V5 fallback: find hash location via "MMU MAP: VA" string
+    idx_mmu = da1.find(b"MMU MAP: VA")
+    if idx_mmu != -1:
+        stored_area = da1[idx_mmu - 0x30:idx_mmu]
+        if stored_area[-4:] == b"\x00\x00\x00\x00":
+            return idx_mmu - 0x30, 2  # SHA256
+        else:
+            return idx_mmu - 0x14, 1  # SHA1
     return None, None
 
 
