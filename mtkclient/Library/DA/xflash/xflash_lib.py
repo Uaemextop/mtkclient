@@ -923,6 +923,29 @@ class DAXFlash(metaclass=LogBase):
                 return True
         return False
 
+    def patch_da2_via_ext(self):
+        """Patch DA2 write restrictions in memory via extensions after SLA auth"""
+        da2 = self.daconfig.da2
+        da2_addr = self.daconfig.da_loader.region[2].m_start_addr
+        patched = False
+        # Patch write not allowed function
+        write_check = da2.find(b"\x37\xB5\x00\x23\x04\x46\x02\xA8")
+        if write_check != -1:
+            addr = da2_addr + write_check
+            if self.xft.custom_write(addr, b"\x37\xB5\x00\x20\x03\xB0\x30\xBD"):
+                self.info(f"Patched write restriction at {hex(addr)}")
+                patched = True
+        # Patch error code 0xC002000C
+        for error_code in [0xC002000C, 0xC002000D, 0xC004000D]:
+            error_bytes = int.to_bytes(error_code, 4, 'little')
+            idx = da2.find(error_bytes)
+            if idx != -1:
+                addr = da2_addr + idx
+                if self.xft.custom_write(addr, b"\x00\x00\x00\x00"):
+                    self.info(f"Patched error code {hex(error_code)} at {hex(addr)}")
+                    patched = True
+        return patched
+
     def patch_da(self, da1, da2):
         """ XFlash patch da1 and da2 """
         da1sig_len = self.daconfig.da_loader.region[1].m_sig_len
@@ -1144,7 +1167,9 @@ class DAXFlash(metaclass=LogBase):
                     if self.mtk.daloader.patch:
                         daextdata = self.xft.patch()
                     else:
-                        daextdata = None
+                        daextdata = self.xft.patch()
+                        if daextdata is not None:
+                            self.info("Attempting to load extensions on unpatched DA...")
                     if daextdata is not None:
                         self.daext = False
                         if self.boot_to(addr=self.extensions_address, da=daextdata):
@@ -1154,6 +1179,11 @@ class DAXFlash(metaclass=LogBase):
                                 self.info(f"DA Extensions successfully added at {hex(self.extensions_address)}")
                                 self.daext = True
                                 self.xft.custom_set_storage(ufs=self.daconfig.storage.flashtype == "ufs")
+                                if not self.mtk.daloader.patch:
+                                    self.info("Attempting post-upload DA2 patch via extensions...")
+                                    if self.patch_da2_via_ext():
+                                        self.mtk.daloader.patch = True
+                                        self.info("DA2 successfully patched in memory")
                         if not self.daext:
                             self.warning("DA Extensions failed to enable")
 
