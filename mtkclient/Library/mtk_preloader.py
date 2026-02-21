@@ -709,14 +709,23 @@ class Preloader(metaclass=LogBase):
                 self.config.set_gui_status(self.config.tr("DA Error"))
                 return False
             if resaddr == addr:
+                status = None
                 try:
-                    status = self.rword()
-                    # Do NOT read status after sleep !
-                    time.sleep(0.1)
+                    for _ in range(3):
+                        status = self.rword()
+                        if status is not None:
+                            break
+                        time.sleep(0.3)
                 except Exception as e:
                     self.error(f"Jump_DA No data available {str(e)} ," + hexlify(data).decode('utf-8'))
                     self.config.set_gui_status(self.config.tr("DA Error"))
                     return False
+                if status is None:
+                    self.error("Jump_DA status timeout after retries")
+                    self.config.set_gui_status(self.config.tr("DA Error"))
+                    return False
+                # Do NOT read status after sleep !
+                time.sleep(0.1)
                 if status == 0:
                     self.info(f"Jumping to {hex(addr)}: ok.")
                     self.config.set_gui_status(self.config.tr(f"Jumping to {hex(addr)}: ok."))
