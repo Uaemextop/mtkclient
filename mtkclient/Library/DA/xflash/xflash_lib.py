@@ -1036,7 +1036,7 @@ class DAXFlash(metaclass=LogBase):
             if da2.find(long_to_bytes(key.n)) != -1:
                 rsakey = key
                 break
-        if "_lake" in self.mtk.loader or "_tides" in self.mtk.loader or "_moon" in self.mtk.loader:
+        if self.mtk.loader and ("_lake" in self.mtk.loader or "_tides" in self.mtk.loader or "_moon" in self.mtk.loader):
             print("Trying lake ....")
             # Xiaomi Redmi 14C
             res = self.get_dev_fw_info()
