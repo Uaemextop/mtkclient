@@ -78,6 +78,8 @@ class XFlashExt(metaclass=LogBase):
             daextdata = bytearray(open(daextensions, "rb").read())
 
             register_devctrl = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x20")
+            if register_devctrl is None:
+                register_devctrl = find_binary(self.da2, b"\x38\xB5\x05\x46\x0C\x46")
 
             # EMMC
             mmc_get_card = find_binary(self.da2, b"\x4B\x4F\xF4\x3C\x72")
@@ -437,7 +439,13 @@ class XFlashExt(metaclass=LogBase):
             res = self.custom_readregister(addr, dwords)
         else:
             res = self.custom_read(addr, dwords * 4)
+            if len(res) == 0:
+                self.error(f"Failed to read memory at {hex(addr)}")
+                return b""
             res = [unpack("<I", res[i:i + 4])[0] for i in range(0, len(res), 4)]
+        if res == b"":
+            self.error(f"Failed to read memory at {hex(addr)}")
+            return b""
         if isinstance(res, list):
             self.debug(f"RX: {hex(addr)} -> " + bytearray(b"".join(pack("<I", val) for val in res)).hex())
         else:

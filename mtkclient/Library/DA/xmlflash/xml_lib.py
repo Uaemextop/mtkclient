@@ -249,7 +249,7 @@ class DAXML(metaclass=LogBase):
             # open("/tmp/_da2", "wb").write(self.daconfig.da2)
         else:
             self.mtk.daloader.patch = False
-            self.daconfig.da2 = da2[:-da2sig_len]
+            self.daconfig.da2 = da2[:-da2sig_len] if da2sig_len > 0 else da2
         return da1, da2
 
     def upload_da1(self):
@@ -285,7 +285,7 @@ class DAXML(metaclass=LogBase):
                 self.daconfig.da2 = da2
             else:
                 self.mtk.daloader.patch = False
-            self.daconfig.da2 = da2[:-da2sig_len]
+            self.daconfig.da2 = da2[:-da2sig_len] if da2sig_len > 0 else da2
             self.daconfig.da1 = da1
             if self.mtk.preloader.send_da(da1address, da1size, da1sig_len, da1):
                 self.info("Successfully uploaded stage 1, jumping ..")

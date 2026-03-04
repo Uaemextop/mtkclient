@@ -670,6 +670,8 @@ class XmlFlashExt(metaclass=LogBase):
 
     def custom_read_reg(self, addr: int, length: int) -> bytes:
         tmp = self.custom_readregister(addr, length // 4)
+        if tmp is None:
+            return b""
         if isinstance(tmp, int):
             return int.to_bytes(tmp, 4, 'little')
         else:
@@ -737,8 +739,13 @@ class XmlFlashExt(metaclass=LogBase):
             res = self.custom_readregister(addr, dwords)
         else:
             res = self.custom_read(addr, dwords * 4)
+            if len(res) == 0:
+                self.error(f"Failed to read memory at {hex(addr)}")
+                return None
             res = [unpack("<I", res[i:i + 4])[0] for i in range(0, len(res), 4)]
-
+        if res is None:
+            self.error(f"Failed to read memory at {hex(addr)}")
+            return None
         if isinstance(res, list):
             self.debug(f"RX: {hex(addr)} -> " + bytearray(b"".join(pack("<I", val) for val in res)).hex())
         else:

@@ -1442,7 +1442,7 @@ hwconfig = {
         damode=DAmodes.XFLASH,
         dacode=0x6768,
         name="MT6768/MT6769",
-        description="Helio P65/G85 k68v1",
+        description="Helio P65/G85 k68v1 (lamu/Moto G05)",
         loader="mt6768_payload.bin"),
     0x788: Chipconfig(
         var1=0xA,
