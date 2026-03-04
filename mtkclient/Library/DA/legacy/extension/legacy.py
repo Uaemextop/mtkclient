@@ -127,12 +127,13 @@ class LegacyExt(metaclass=LogBase):
     def fix_hash(da1, da2, da2sig_len, hashpos, hashmode):
         da1 = bytearray(da1)
         dahash = None
+        da2_for_hash = da2[:-da2sig_len] if da2sig_len > 0 else da2
         if hashmode == 0:
-            dahash = hashlib.md5(da2[:-da2sig_len]).digest()
+            dahash = hashlib.md5(da2_for_hash).digest()
         elif hashmode == 1:
-            dahash = hashlib.sha1(da2[:-da2sig_len]).digest()
+            dahash = hashlib.sha1(da2_for_hash).digest()
         elif hashmode == 2:
-            dahash = hashlib.sha256(da2[:-da2sig_len]).digest()
+            dahash = hashlib.sha256(da2_for_hash).digest()
         da1[hashpos:hashpos + len(dahash)] = dahash
         return da1
 
