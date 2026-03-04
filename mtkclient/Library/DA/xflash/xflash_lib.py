@@ -29,8 +29,8 @@ class DAXFlash(metaclass=LogBase):
     """ Handles XFlash protocol """
 
     def __init__(self, mtk, daconfig, loglevel=logging.INFO):
-        # self.extensions_address = 0x68000000
         self.extensions_address = 0x4FFF0000
+        self.alt_extensions_address = 0x68000000
         self.daversion = None
         (self.__logger, self.info, self.debug, self.warning,
          self.error) = logsetup(self, self.__logger, loglevel, mtk.config.gui)
@@ -284,14 +284,15 @@ class DAXFlash(metaclass=LogBase):
 
     def boot_to(self, addr, da, display=True, timeout=0.5):  # =0x40000000
         if self.xsend(self.cmd.BOOT_TO):
-            if self.status() == 0:
+            boot_status = self.status()
+            if boot_status == 0:
                 param = pack("<QQ", addr, len(da))
                 pkt1 = pack("<III", self.cmd.MAGIC, self.data_type.DT_PROTOCOL_FLOW, len(param))
                 if self.usbwrite(pkt1):
                     if self.usbwrite(param):
                         if self.send_data(da):
                             # if addr == 0x68000000:
-                            if addr == self.extensions_address:
+                            if addr == self.extensions_address or addr == self.alt_extensions_address:
                                 if display:
                                     self.info("Extensions were accepted. Jumping to extensions...")
                             else:
@@ -321,8 +322,50 @@ class DAXFlash(metaclass=LogBase):
                 else:
                     self.error(f"Error on boot usbwrite, addr: {hex(addr)}")
             else:
-                self.error(f"Error on boot to, addr: {hex(addr)}")
+                self.error(f"Error on boot to: {self.eh.status(boot_status)}, addr: {hex(addr)}")
         return False
+
+    def write_register(self, addr, value):
+        """Write a 32-bit value to a register/memory address via DEVICE_CTRL SET_REGISTER_VALUE.
+        This goes through the DA2 DEVICE_CTRL command path which may be allowed
+        even when BOOT_TO and WRITE_DATA are blocked (e.g., FORBID DAs)."""
+        param = pack("<II", addr, value)
+        return self.send_devctrl(self.cmd.SET_REGISTER_VALUE, param) is True
+
+    def patch_da2_via_register(self):
+        """Patch DA2 write restrictions via SET_REGISTER_VALUE when extensions can't load.
+
+        On FORBID DAs where BOOT_TO is disabled (0xC0010003), extensions cannot be loaded.
+        This method uses SET_REGISTER_VALUE through DEVICE_CTRL to write patches
+        directly to DA2 memory addresses."""
+        da2 = self.daconfig.da2
+        da2_addr = self.daconfig.da_loader.region[2].m_start_addr
+        patched = False
+        # Patch write not allowed function (return 0 instead of error)
+        write_check = da2.find(b"\x37\xB5\x00\x23\x04\x46\x02\xA8")
+        if write_check != -1:
+            addr = da2_addr + write_check
+            # Patch to: 37 B5 00 20 03 B0 30 BD (PUSH {R4-R5,LR}; MOVS R0,#0; ADD SP,#0xC; POP {R4,R5,PC})
+            if not self.write_register(addr, 0x2000B537):
+                self.warning("SET_REGISTER_VALUE not supported by this DA")
+                return False
+            if self.write_register(addr + 4, 0xBD30B003):
+                self.info(f"Patched write restriction at {hex(addr)} via register write")
+                patched = True
+        # Patch all occurrences of known error codes
+        for error_code in [0xC002000C, 0xC002000D, 0xC004000D, 0xC0020053, 0xC0070004]:
+            error_bytes = int.to_bytes(error_code, 4, 'little')
+            idx = 0
+            while True:
+                idx = da2.find(error_bytes, idx)
+                if idx == -1:
+                    break
+                addr = da2_addr + idx
+                if self.write_register(addr, 0x00000000):
+                    self.info(f"Patched error code {hex(error_code)} at {hex(addr)} via register write")
+                    patched = True
+                idx += 4
+        return patched
 
     def get_connection_agent(self):
         # brom
@@ -923,6 +966,66 @@ class DAXFlash(metaclass=LogBase):
                 return True
         return False
 
+    def patch_da2_via_ext(self):
+        """Patch DA2 write restrictions in memory via extensions after SLA auth.
+
+        When pre-upload patching is not possible (e.g., anti-carbonara blocks
+        hash overwrite), this method patches DA2 code in running memory using
+        the extensions custom_write capability.
+        """
+        da2 = self.daconfig.da2
+        da2_addr = self.daconfig.da_loader.region[2].m_start_addr
+        patched = False
+        # Patch write not allowed function (return 0 instead of error)
+        write_check = da2.find(b"\x37\xB5\x00\x23\x04\x46\x02\xA8")
+        if write_check != -1:
+            addr = da2_addr + write_check
+            if self.xft.custom_write(addr, b"\x37\xB5\x00\x20\x03\xB0\x30\xBD"):
+                self.info(f"Patched write restriction at {hex(addr)}")
+                patched = True
+        # Patch hash binding (disable security check)
+        hash_bind = da2.find(b"\x01\x23\x03\x60\x00\x20\x70\x47\x70\xB5")
+        if hash_bind != -1:
+            addr = da2_addr + hash_bind
+            if self.xft.custom_write(addr, b"\x00\x23"):
+                self.info(f"Patched hash binding at {hex(addr)}")
+                patched = True
+        # Patch SBC check to always return disabled
+        sbc_check = da2.find(b"\x02\x4B\x18\x68\xC0\xF3\x40\x00\x70\x47")
+        if sbc_check != -1:
+            addr = da2_addr + sbc_check + 4
+            if self.xft.custom_write(addr, b"\x4F\xF0\x00\x00"):
+                self.info(f"Patched SBC check at {hex(addr)}")
+                patched = True
+        # Patch Moto SLA to return disabled
+        moto_sla = da2.find(b"\x01\x00\x01\xC0\x01\x20\x70\x47")
+        if moto_sla != -1:
+            addr = da2_addr + moto_sla + 4
+            if self.xft.custom_write(addr, b"\x00\x20"):
+                self.info(f"Patched Moto SLA at {hex(addr)}")
+                patched = True
+        # Patch get_vfy_policy to return 0
+        vfy_policy = da2.find(bytes.fromhex("FFC0F3400008BD"))
+        if vfy_policy != -1:
+            addr = da2_addr + vfy_policy + 1
+            if self.xft.custom_write(addr, b"\x4F\xF0\x00\x00"):
+                self.info(f"Patched get_vfy_policy at {hex(addr)}")
+                patched = True
+        # Patch all occurrences of known error codes
+        for error_code in [0xC002000C, 0xC002000D, 0xC004000D, 0xC0020053, 0xC0070004]:
+            error_bytes = int.to_bytes(error_code, 4, 'little')
+            idx = 0
+            while True:
+                idx = da2.find(error_bytes, idx)
+                if idx == -1:
+                    break
+                addr = da2_addr + idx
+                if self.xft.custom_write(addr, b"\x00\x00\x00\x00"):
+                    self.info(f"Patched error code {hex(error_code)} at {hex(addr)}")
+                    patched = True
+                idx += 4
+        return patched
+
     def patch_da(self, da1, da2):
         """ XFlash patch da1 and da2 """
         da1sig_len = self.daconfig.da_loader.region[1].m_sig_len
@@ -970,6 +1073,15 @@ class DAXFlash(metaclass=LogBase):
                 self.daconfig.da2 = da2[:-da2sig_len]
             if self.mtk.preloader.send_da(da1address, da1size, da1sig_len, da1):
                 self.info("Successfully uploaded stage 1, jumping ..")
+                if not self.config.target_config.get("memwrite", True):
+                    anti_carb_offset = da1.find(b"\x06\x9B\x4F\xF0\x80\x40\x02\xA9")
+                    if anti_carb_offset != -1:
+                        patch_addr = da1address + anti_carb_offset + 2
+                        if self.mtk.preloader.write32(patch_addr, [0x0000F04F]):
+                            self.info("Patched anti-carbonara in DA1 memory")
+                            self.config.da1_anti_carb_patched = True
+                        else:
+                            self.warning("Failed to patch anti-carbonara in DA1 memory")
                 if self.mtk.preloader.jump_da(da1address):
                     sync = self.usbread(1)
                     if sync != b"\xC0":
@@ -1036,7 +1148,7 @@ class DAXFlash(metaclass=LogBase):
             if da2.find(long_to_bytes(key.n)) != -1:
                 rsakey = key
                 break
-        if "_lake" in self.mtk.loader or "_tides" in self.mtk.loader or "_moon" in self.mtk.loader:
+        if self.mtk.loader and ("_lake" in self.mtk.loader or "_tides" in self.mtk.loader or "_moon" in self.mtk.loader):
             print("Trying lake ....")
             # Xiaomi Redmi 14C
             res = self.get_dev_fw_info()
@@ -1144,18 +1256,35 @@ class DAXFlash(metaclass=LogBase):
                     if self.mtk.daloader.patch:
                         daextdata = self.xft.patch()
                     else:
-                        daextdata = None
+                        # When pre-upload patching failed (e.g., anti-carbonara),
+                        # try loading extensions anyway to enable post-upload
+                        # memory patching of DA2 via custom_write
+                        daextdata = self.xft.patch()
+                        if daextdata is not None:
+                            self.info("Attempting to load extensions on unpatched DA...")
                     if daextdata is not None:
                         self.daext = False
-                        if self.boot_to(addr=self.extensions_address, da=daextdata):
-                            ret = self.send_devctrl(XCmd.CUSTOM_ACK)
-                            status = self.status()
-                            if status == 0x0 and unpack("<I", ret)[0] == 0xA1A2A3A4:
-                                self.info(f"DA Extensions successfully added at {hex(self.extensions_address)}")
-                                self.daext = True
-                                self.xft.custom_set_storage(ufs=self.daconfig.storage.flashtype == "ufs")
+                        for ext_addr in [self.extensions_address, self.alt_extensions_address]:
+                            if self.boot_to(addr=ext_addr, da=daextdata):
+                                ret = self.send_devctrl(XCmd.CUSTOM_ACK)
+                                status = self.status()
+                                if status == 0x0 and unpack("<I", ret)[0] == 0xA1A2A3A4:
+                                    self.info(f"DA Extensions successfully added at {hex(ext_addr)}")
+                                    self.daext = True
+                                    self.xft.custom_set_storage(ufs=self.daconfig.storage.flashtype == "ufs")
+                                    if not self.mtk.daloader.patch:
+                                        self.info("Attempting post-upload DA2 patch via extensions...")
+                                        if self.patch_da2_via_ext():
+                                            self.mtk.daloader.patch = True
+                                            self.info("DA2 successfully patched in memory")
+                                    break
                         if not self.daext:
                             self.warning("DA Extensions failed to enable")
+                            if not self.mtk.daloader.patch:
+                                self.info("Attempting DA2 patch via register writes...")
+                                if self.patch_da2_via_register():
+                                    self.mtk.daloader.patch = True
+                                    self.info("DA2 patched via register writes")
 
                         if self.generatekeys:
                             self.xft.generate_keys()
